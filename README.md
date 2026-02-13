@@ -26,6 +26,13 @@ npm run build
 
 ## Configuration
 
+### Pipedrive API Token
+
+Get your API token from Pipedrive:
+1. Go to your Pipedrive account settings
+2. Navigate to Personal preferences → API
+3. Copy your API token
+
 Create a `.env` file based on `.env.example`:
 
 ```bash
@@ -49,6 +56,29 @@ You need to create three saved filters in your Pipedrive account:
 Get the filter IDs from the Pipedrive UI or API and set them in your `.env` file.
 
 ## Usage
+
+### MCP Client Configuration
+
+To use this server with an MCP client (like Claude Desktop), add the following to your MCP configuration file:
+
+```json
+{
+  "mcpServers": {
+    "pipedrive": {
+      "command": "node",
+      "args": ["/absolute/path/to/pipedrive-mcp/dist/index.js"],
+      "env": {
+        "PIPEDRIVE_API_TOKEN": "your_api_token_here",
+        "PIPEDRIVE_OVERDUE_FILTER_ID": "123",
+        "PIPEDRIVE_TODAY_FILTER_ID": "456",
+        "PIPEDRIVE_MISSING_ACTION_FILTER_ID": "789"
+      }
+    }
+  }
+}
+```
+
+See `mcp-config-example.json` for a template.
 
 ### Running the Server
 
