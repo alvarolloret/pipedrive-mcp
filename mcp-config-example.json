@@ -7,9 +7,11 @@
       ],
       "env": {
         "PIPEDRIVE_API_TOKEN": "your_api_token_here",
-        "PIPEDRIVE_OVERDUE_FILTER_ID": "123",
-        "PIPEDRIVE_TODAY_FILTER_ID": "456",
-        "PIPEDRIVE_MISSING_ACTION_FILTER_ID": "789"
+        "PIPEDRIVE_API_BASE": "https://api.pipedrive.com/v2",
+        "PIPEDRIVE_COMPANY_DOMAIN": "yourcompany.pipedrive.com",
+        "DEFAULT_TIMEZONE": "Europe/Madrid",
+        "CACHE_TTL_SECONDS": "3600",
+        "MAX_ITEMS_PER_SECTION": "50"
       }
     }
   }

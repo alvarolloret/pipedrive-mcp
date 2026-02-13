@@ -1,6 +1,9 @@
 # Miinta Pipedrive MCP v0.1
 
-Read-only MCP (Model Context Protocol) server for Pipedrive that provides a morning sales digest with overdue activities, today's activities, and deals missing next action.
+Read-only MCP (Model Context Protocol) server for Pipedrive that provides a digest-ready sales queue with:
+- **Overdue follow-up activities** (from a Pipedrive filter)
+- **Due today follow-up activities** (from a Pipedrive filter)
+- **Deals missing next action** (from a Pipedrive filter)
 
 ## Features
 
@@ -8,14 +11,18 @@ Read-only MCP (Model Context Protocol) server for Pipedrive that provides a morn
 - **Pipedrive API v2**: Uses modern Pipedrive API for activities, deals, persons, organizations, and stages
 - **Data Enrichment**: 
   - Stage names for deals
-  - Contact information (email, phone) for persons
-  - Direct deal URLs
+  - Contact information (email) for persons
+  - Direct deal URLs with configurable company domain
+  - Days overdue calculation for activities
+  - Deal metadata (undone activities count, last mail times)
 - **Smart Features**:
-  - Pagination support (configurable max results)
-  - Caching for improved performance
-  - Europe/Madrid timezone support
+  - Cursor-based pagination support
+  - Bulk fetching for persons/organizations (avoids N+1 queries)
+  - Caching for improved performance (configurable TTL)
+  - Configurable timezone support (default: Europe/Madrid)
   - Standard MCP stdio transport for streaming communication
   - Bearer authentication for Pipedrive API
+- **Flexible**: Filter IDs provided per request (not hardcoded in environment)
 
 ## Installation
 
@@ -36,24 +43,44 @@ Get your API token from Pipedrive:
 Create a `.env` file based on `.env.example`:
 
 ```bash
-# Pipedrive API Token (Bearer token)
+# Required: Pipedrive API Token (Bearer token)
 PIPEDRIVE_API_TOKEN=your_pipedrive_api_token_here
 
-# Pipedrive Filter IDs
-PIPEDRIVE_OVERDUE_FILTER_ID=123
-PIPEDRIVE_TODAY_FILTER_ID=456
-PIPEDRIVE_MISSING_ACTION_FILTER_ID=789
+# Optional: Pipedrive API Base URL (default: https://api.pipedrive.com/v2)
+PIPEDRIVE_API_BASE=https://api.pipedrive.com/v2
+
+# Optional: Pipedrive Company Domain for deal URLs (default: app.pipedrive.com)
+# Example: yourcompany.pipedrive.com
+PIPEDRIVE_COMPANY_DOMAIN=yourcompany.pipedrive.com
+
+# Optional: MCP Authentication Token (required if not localhost)
+MCP_AUTH_TOKEN=your_mcp_auth_token_here
+
+# Optional: Default timezone (default: Europe/Madrid)
+DEFAULT_TIMEZONE=Europe/Madrid
+
+# Optional: Cache TTL in seconds (default: 3600)
+CACHE_TTL_SECONDS=3600
+
+# Optional: Maximum items per section (default: 50)
+MAX_ITEMS_PER_SECTION=50
+
+# Optional: Transport mode - stdio, http, or sse (default: stdio)
+TRANSPORT_MODE=stdio
+
+# Optional: HTTP Server Port (default: 3000, only used if TRANSPORT_MODE is http or sse)
+HTTP_PORT=3000
 ```
 
 ### Required Pipedrive Filters
 
 You need to create three saved filters in your Pipedrive account:
 
-1. **Overdue Activities Filter**: Filter for activities with due dates in the past
-2. **Today's Activities Filter**: Filter for activities due today
-3. **Deals Missing Next Action Filter**: Filter for deals without a next activity scheduled
+1. **Overdue Activities Filter**: Filter for activities with `done=false` and `due_date < today`
+2. **Today's Activities Filter**: Filter for activities with `done=false` and `due_date = today`
+3. **Deals Missing Next Action Filter**: Filter for open deals without a next activity scheduled
 
-Get the filter IDs from the Pipedrive UI or API and set them in your `.env` file.
+Get the filter IDs from the Pipedrive UI or API. These will be provided when calling the tool (not in environment variables).
 
 ## Usage
 
@@ -69,9 +96,8 @@ To use this server with an MCP client (like Claude Desktop), add the following t
       "args": ["/absolute/path/to/pipedrive-mcp/dist/index.js"],
       "env": {
         "PIPEDRIVE_API_TOKEN": "your_api_token_here",
-        "PIPEDRIVE_OVERDUE_FILTER_ID": "123",
-        "PIPEDRIVE_TODAY_FILTER_ID": "456",
-        "PIPEDRIVE_MISSING_ACTION_FILTER_ID": "789"
+        "PIPEDRIVE_COMPANY_DOMAIN": "yourcompany.pipedrive.com",
+        "DEFAULT_TIMEZONE": "Europe/Madrid"
       }
     }
   }
@@ -90,9 +116,7 @@ Or with environment variables directly:
 
 ```bash
 PIPEDRIVE_API_TOKEN=xxx \
-PIPEDRIVE_OVERDUE_FILTER_ID=123 \
-PIPEDRIVE_TODAY_FILTER_ID=456 \
-PIPEDRIVE_MISSING_ACTION_FILTER_ID=789 \
+PIPEDRIVE_COMPANY_DOMAIN=yourcompany.pipedrive.com \
 npm start
 ```
 
@@ -100,45 +124,133 @@ npm start
 
 The server exposes one tool: `miinta.sales_queue.get`
 
-**Parameters:**
-- `max_results` (optional, default: 50): Maximum number of results per category
+**Input Schema (JSON Schema):**
 
-**Returns:**
-A JSON object containing:
-- `generated_at`: Timestamp when the digest was generated (Europe/Madrid timezone)
-- `timezone`: The timezone used for date calculations
-- `overdue_activities`: Array of enriched overdue activities
-- `today_activities`: Array of enriched activities due today
-- `deals_missing_next_action`: Array of enriched deals without next action
-- `summary`: Counts for each category
-
-**Example Response:**
 ```json
 {
-  "generated_at": "2026-02-13 22:30:00 CET",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "filters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "overdue_activities_filter_id": { "type": "integer" },
+        "today_activities_filter_id": { "type": "integer" },
+        "missing_next_action_deals_filter_id": { "type": "integer" }
+      },
+      "required": [
+        "overdue_activities_filter_id",
+        "today_activities_filter_id",
+        "missing_next_action_deals_filter_id"
+      ]
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "overdue": { "type": "integer", "minimum": 1, "maximum": 200, "default": 25 },
+        "today": { "type": "integer", "minimum": 1, "maximum": 200, "default": 25 },
+        "missing": { "type": "integer", "minimum": 1, "maximum": 200, "default": 25 }
+      }
+    },
+    "timezone": { "type": "string", "default": "Europe/Madrid" },
+    "now": {
+      "type": "string",
+      "description": "Optional ISO datetime override for deterministic testing"
+    },
+    "include_people_orgs": { "type": "boolean", "default": true }
+  },
+  "required": ["filters"]
+}
+```
+
+**Example Request:**
+
+```json
+{
+  "filters": {
+    "overdue_activities_filter_id": 111,
+    "today_activities_filter_id": 222,
+    "missing_next_action_deals_filter_id": 333
+  },
+  "limits": {
+    "overdue": 25,
+    "today": 25,
+    "missing": 25
+  },
   "timezone": "Europe/Madrid",
-  "overdue_activities": [
-    {
-      "id": 123,
-      "subject": "Follow up call",
-      "type": "call",
-      "due_date": "2026-02-12",
-      "due_time": "10:00",
-      "person_name": "John Doe",
-      "person_email": "john@example.com",
-      "person_phone": "+34123456789",
-      "org_name": "Example Corp",
-      "deal_title": "Annual Contract",
-      "deal_url": "https://app.pipedrive.com/deal/456",
-      "is_overdue": true
+  "include_people_orgs": true
+}
+```
+
+**Example Response:**
+
+```json
+{
+  "generated_at": "2026-02-16T07:45:00+01:00",
+  "timezone": "Europe/Madrid",
+  "sections": {
+    "overdue": [
+      {
+        "activity_id": 123,
+        "activity_subject": "Follow-up email",
+        "activity_type": "email",
+        "due_date": "2026-02-14",
+        "days_overdue": 2,
+        "deal": {
+          "deal_id": 456,
+          "title": "Escola X — Pilot",
+          "stage_id": 3,
+          "stage_name": "Conversation open neutral",
+          "url": "https://yourcompany.pipedrive.com/deal/456"
+        },
+        "person": {
+          "id": 10,
+          "name": "Maria Rius",
+          "email": "maria@example.com"
+        },
+        "org": {
+          "id": 20,
+          "name": "Escola X"
+        }
+      }
+    ],
+    "due_today": [],
+    "missing_next_action": [
+      {
+        "deal_id": 789,
+        "title": "Universitat Y — Training",
+        "stage_id": 2,
+        "stage_name": "Contact",
+        "owner_id": 1,
+        "undone_activities_count": 0,
+        "next_activity_id": null,
+        "last_outgoing_mail_time": "2026-02-10T09:12:00Z",
+        "last_incoming_mail_time": null,
+        "url": "https://yourcompany.pipedrive.com/deal/789",
+        "person": {
+          "id": 11,
+          "name": "Joan Garcia"
+        },
+        "org": {
+          "id": 21,
+          "name": "Universitat Y"
+        }
+      }
+    ]
+  },
+  "stats": {
+    "overdue_count": 1,
+    "due_today_count": 0,
+    "missing_next_action_count": 1
+  },
+  "source": {
+    "filter_ids": {
+      "overdue_activities_filter_id": 111,
+      "today_activities_filter_id": 222,
+      "missing_next_action_deals_filter_id": 333
     }
-  ],
-  "today_activities": [...],
-  "deals_missing_next_action": [...],
-  "summary": {
-    "total_overdue": 5,
-    "total_today": 12,
-    "total_deals_missing_action": 3
   }
 }
 ```
@@ -146,9 +258,37 @@ A JSON object containing:
 ## Architecture
 
 - **Pipedrive Client** (`pipedrive-client.ts`): Handles all Pipedrive API v2 interactions
+  - Activities filtering with `done=false`, sorting
+  - Deals filtering with `status=open`, `include_fields`
+  - Cursor-based pagination
+  - Bulk fetching for persons/organizations
 - **Cache** (`cache.ts`): In-memory caching with TTL support
 - **Sales Queue Service** (`sales-queue.ts`): Business logic for aggregating and enriching data
+  - Stage name resolution
+  - Days overdue calculation
+  - Person/org enrichment with bulk fetching
+  - Deal URL generation with company domain
 - **MCP Server** (`index.ts`): MCP protocol implementation with stdio transport
+
+## API Version
+
+This server uses Pipedrive API v2 endpoints:
+- `/v2/activities` - with `filter_id`, `done=false`, `sort_by=due_date`
+- `/v2/deals` - with `filter_id`, `status=open`, `include_fields`
+- `/v2/persons` - with bulk `ids` parameter
+- `/v2/organizations` - with bulk `ids` parameter
+- `/v2/stages` - cached for stage name resolution
+
+## Error Handling
+
+The server implements two layers of error handling as per MCP spec:
+
+1. **Protocol errors** (JSON-RPC) for invalid args/unknown tool
+2. **Tool execution errors**: returns `isError: true` with readable error messages for:
+   - Pipedrive auth failures
+   - Rate limit / transient upstream errors
+   - Invalid filter_id / permission issues
+   - Missing required parameters
 
 ## Development
 
@@ -160,14 +300,20 @@ npm run build
 npm run dev
 ```
 
-## API Version
+## Acceptance Criteria
 
-This server uses Pipedrive API v2 endpoints:
-- `/v2/activities`
-- `/v2/deals`
-- `/v2/persons`
-- `/v2/organizations`
-- `/v2/stages`
+The server is considered "production-ready" when it:
+
+- ✅ Accepts three filter IDs via tool call parameters
+- ✅ Returns correct items from each filter
+- ✅ Calculates correct `days_overdue` in specified timezone
+- ✅ Resolves correct `stage_name` values from cached stage map
+- ✅ Includes person/org names when available
+- ✅ Generates valid deal links using `PIPEDRIVE_COMPANY_DOMAIN`
+- ✅ Handles pagination via `cursor` until requested limits are filled
+- ✅ Includes deal fields: `undone_activities_count`, `last_incoming_mail_time`, `last_outgoing_mail_time`
+- ✅ Uses bulk fetching for persons/orgs to avoid N+1 queries
+- ✅ Returns output in exact spec format with `sections`, `stats`, `source`
 
 ## License
 
