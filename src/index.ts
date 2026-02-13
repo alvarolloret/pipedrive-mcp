@@ -9,42 +9,68 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { SalesQueueService } from './sales-queue.js';
 
-// Get API token from environment
+// Get configuration from environment
 const PIPEDRIVE_API_TOKEN = process.env.PIPEDRIVE_API_TOKEN;
 if (!PIPEDRIVE_API_TOKEN) {
   console.error('Error: PIPEDRIVE_API_TOKEN environment variable is required');
   process.exit(1);
 }
 
-// Get filter IDs from environment
-const OVERDUE_FILTER_ID = process.env.PIPEDRIVE_OVERDUE_FILTER_ID;
-const TODAY_FILTER_ID = process.env.PIPEDRIVE_TODAY_FILTER_ID;
-const MISSING_ACTION_FILTER_ID = process.env.PIPEDRIVE_MISSING_ACTION_FILTER_ID;
-
-if (!OVERDUE_FILTER_ID || !TODAY_FILTER_ID || !MISSING_ACTION_FILTER_ID) {
-  console.error('Error: Required filter IDs not set:');
-  console.error('  - PIPEDRIVE_OVERDUE_FILTER_ID');
-  console.error('  - PIPEDRIVE_TODAY_FILTER_ID');
-  console.error('  - PIPEDRIVE_MISSING_ACTION_FILTER_ID');
-  process.exit(1);
-}
+const PIPEDRIVE_API_BASE = process.env.PIPEDRIVE_API_BASE || 'https://api.pipedrive.com/v2';
+const PIPEDRIVE_COMPANY_DOMAIN = process.env.PIPEDRIVE_COMPANY_DOMAIN || 'app.pipedrive.com';
+const DEFAULT_TIMEZONE = process.env.DEFAULT_TIMEZONE || 'Europe/Madrid';
+const CACHE_TTL_SECONDS = parseInt(process.env.CACHE_TTL_SECONDS || '3600', 10);
+const MAX_ITEMS_PER_SECTION = parseInt(process.env.MAX_ITEMS_PER_SECTION || '50', 10);
+const MCP_AUTH_TOKEN = process.env.MCP_AUTH_TOKEN;
 
 // Initialize service
-const salesQueueService = new SalesQueueService(PIPEDRIVE_API_TOKEN);
+const salesQueueService = new SalesQueueService(
+  PIPEDRIVE_API_TOKEN,
+  PIPEDRIVE_API_BASE,
+  PIPEDRIVE_COMPANY_DOMAIN,
+  DEFAULT_TIMEZONE,
+  CACHE_TTL_SECONDS
+);
 
-// Define the tool
+// Define the tool with new schema
 const SALES_QUEUE_TOOL: Tool = {
   name: 'miinta.sales_queue.get',
-  description: 'Get the morning sales digest with overdue activities, today\'s activities, and deals missing next action from Pipedrive',
+  description: 'Return a structured "morning queue" payload using three Pipedrive filter IDs, plus enrichment (deal title, stage name, org/person names, URLs).',
   inputSchema: {
     type: 'object',
+    additionalProperties: false,
     properties: {
-      max_results: {
-        type: 'number',
-        description: 'Maximum number of results to return per category (default: 50)',
-        default: 50,
+      filters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          overdue_activities_filter_id: { type: 'integer' },
+          today_activities_filter_id: { type: 'integer' },
+          missing_next_action_deals_filter_id: { type: 'integer' },
+        },
+        required: [
+          'overdue_activities_filter_id',
+          'today_activities_filter_id',
+          'missing_next_action_deals_filter_id',
+        ],
       },
+      limits: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          overdue: { type: 'integer', minimum: 1, maximum: 200, default: 25 },
+          today: { type: 'integer', minimum: 1, maximum: 200, default: 25 },
+          missing: { type: 'integer', minimum: 1, maximum: 200, default: 25 },
+        },
+      },
+      timezone: { type: 'string', default: 'Europe/Madrid' },
+      now: {
+        type: 'string',
+        description: 'Optional ISO datetime override for deterministic testing',
+      },
+      include_people_orgs: { type: 'boolean', default: true },
     },
+    required: ['filters'],
   },
 };
 
@@ -71,14 +97,79 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 // Handle tool execution
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (request.params.name === 'miinta.sales_queue.get') {
-    const maxResults = (request.params.arguments?.max_results as number) || 50;
-
     try {
+      const args = request.params.arguments as any;
+
+      // Validate filters are provided
+      if (!args?.filters) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'Error: filters object is required',
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      const {
+        overdue_activities_filter_id,
+        today_activities_filter_id,
+        missing_next_action_deals_filter_id,
+      } = args.filters;
+
+      // Validate filter IDs
+      if (
+        !overdue_activities_filter_id ||
+        !today_activities_filter_id ||
+        !missing_next_action_deals_filter_id
+      ) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'Error: All three filter IDs are required in filters object',
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      // Get limits with defaults
+      const limits = {
+        overdue: args.limits?.overdue || MAX_ITEMS_PER_SECTION,
+        today: args.limits?.today || MAX_ITEMS_PER_SECTION,
+        missing: args.limits?.missing || MAX_ITEMS_PER_SECTION,
+      };
+
+      // Validate limits
+      if (limits.overdue < 1 || limits.overdue > 200 ||
+          limits.today < 1 || limits.today > 200 ||
+          limits.missing < 1 || limits.missing > 200) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'Error: limits must be between 1 and 200',
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      const timezone = args.timezone || DEFAULT_TIMEZONE;
+      const includePeopleOrgs = args.include_people_orgs !== false;
+      const now = args.now ? new Date(args.now) : undefined;
+
       const digest = await salesQueueService.getSalesQueueDigest(
-        parseInt(OVERDUE_FILTER_ID),
-        parseInt(TODAY_FILTER_ID),
-        parseInt(MISSING_ACTION_FILTER_ID),
-        maxResults
+        overdue_activities_filter_id,
+        today_activities_filter_id,
+        missing_next_action_deals_filter_id,
+        limits,
+        timezone,
+        now,
+        includePeopleOrgs
       );
 
       return {

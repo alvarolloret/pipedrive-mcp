@@ -29,8 +29,12 @@ export interface Deal {
   status: string;
   add_time: string;
   update_time: string;
+  owner_id?: number;
   next_activity_id?: number;
   next_activity_date?: string;
+  undone_activities_count?: number;
+  last_incoming_mail_time?: string;
+  last_outgoing_mail_time?: string;
 }
 
 export interface Person {
@@ -70,15 +74,17 @@ export interface PaginatedResponse<T> {
       limit: number;
       more_items_in_collection: boolean;
       next_start?: number;
+      next_cursor?: string;
     };
   };
 }
 
 export class PipedriveClient {
   private client: AxiosInstance;
-  private baseURL = 'https://api.pipedrive.com/v2';
+  private baseURL: string;
 
-  constructor(apiToken: string) {
+  constructor(apiToken: string, baseURL = 'https://api.pipedrive.com/v2') {
+    this.baseURL = baseURL;
     this.client = axios.create({
       baseURL: this.baseURL,
       headers: {
@@ -88,25 +94,44 @@ export class PipedriveClient {
     });
   }
 
-  async getActivitiesByFilter(filterId: number, start = 0, limit = 100): Promise<PaginatedResponse<Activity>> {
-    const response = await this.client.get(`/activities`, {
-      params: {
-        filter_id: filterId,
-        start,
-        limit,
-      },
-    });
+  async getActivitiesByFilter(
+    filterId: number, 
+    limit = 100,
+    cursor?: string
+  ): Promise<PaginatedResponse<Activity>> {
+    const params: any = {
+      filter_id: filterId,
+      done: false,
+      sort_by: 'due_date',
+      sort_direction: 'asc',
+      limit,
+    };
+    
+    if (cursor) {
+      params.cursor = cursor;
+    }
+    
+    const response = await this.client.get(`/activities`, { params });
     return response.data;
   }
 
-  async getDealsByFilter(filterId: number, start = 0, limit = 100): Promise<PaginatedResponse<Deal>> {
-    const response = await this.client.get(`/deals`, {
-      params: {
-        filter_id: filterId,
-        start,
-        limit,
-      },
-    });
+  async getDealsByFilter(
+    filterId: number,
+    limit = 100,
+    cursor?: string
+  ): Promise<PaginatedResponse<Deal>> {
+    const params: any = {
+      filter_id: filterId,
+      status: 'open',
+      include_fields: 'undone_activities_count,next_activity_id,last_incoming_mail_time,last_outgoing_mail_time',
+      limit,
+    };
+    
+    if (cursor) {
+      params.cursor = cursor;
+    }
+    
+    const response = await this.client.get(`/deals`, { params });
     return response.data;
   }
 
@@ -119,6 +144,30 @@ export class PipedriveClient {
     }
   }
 
+  async getPersonsBulk(personIds: number[]): Promise<Map<number, Person>> {
+    const personsMap = new Map<number, Person>();
+    if (personIds.length === 0) return personsMap;
+
+    // Fetch in batches of 100
+    for (let i = 0; i < personIds.length; i += 100) {
+      const batch = personIds.slice(i, i + 100);
+      try {
+        const response = await this.client.get(`/persons`, {
+          params: { ids: batch.join(',') },
+        });
+        if (response.data.data) {
+          for (const person of response.data.data) {
+            personsMap.set(person.id, person);
+          }
+        }
+      } catch (error) {
+        // Continue with next batch even if one fails
+        console.error(`Error fetching persons batch: ${error}`);
+      }
+    }
+    return personsMap;
+  }
+
   async getOrganization(orgId: number): Promise<Organization | null> {
     try {
       const response = await this.client.get(`/organizations/${orgId}`);
@@ -126,6 +175,30 @@ export class PipedriveClient {
     } catch (error) {
       return null;
     }
+  }
+
+  async getOrganizationsBulk(orgIds: number[]): Promise<Map<number, Organization>> {
+    const orgsMap = new Map<number, Organization>();
+    if (orgIds.length === 0) return orgsMap;
+
+    // Fetch in batches of 100
+    for (let i = 0; i < orgIds.length; i += 100) {
+      const batch = orgIds.slice(i, i + 100);
+      try {
+        const response = await this.client.get(`/organizations`, {
+          params: { ids: batch.join(',') },
+        });
+        if (response.data.data) {
+          for (const org of response.data.data) {
+            orgsMap.set(org.id, org);
+          }
+        }
+      } catch (error) {
+        // Continue with next batch even if one fails
+        console.error(`Error fetching organizations batch: ${error}`);
+      }
+    }
+    return orgsMap;
   }
 
   async getStage(stageId: number): Promise<Stage | null> {

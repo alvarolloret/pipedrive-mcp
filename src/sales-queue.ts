@@ -1,163 +1,260 @@
-import { PipedriveClient, Activity, Deal, Stage } from './pipedrive-client.js';
+import { PipedriveClient, Activity, Deal, Stage, Person, Organization } from './pipedrive-client.js';
 import { Cache } from './cache.js';
 import { format, toZonedTime } from 'date-fns-tz';
-import { parseISO, startOfDay, isBefore } from 'date-fns';
+import { parseISO, startOfDay, isBefore, differenceInDays } from 'date-fns';
 
-export interface EnrichedActivity {
-  id: number;
-  subject: string;
-  type: string;
+// Output format interfaces matching the spec
+export interface ActivityItem {
+  activity_id: number;
+  activity_subject: string;
+  activity_type: string;
   due_date: string;
-  due_time: string;
-  person_name: string;
-  person_email?: string;
-  person_phone?: string;
-  org_name: string;
-  deal_title: string;
-  deal_url: string;
-  is_overdue: boolean;
+  days_overdue?: number;
+  deal: {
+    deal_id: number;
+    title: string;
+    stage_id: number;
+    stage_name: string;
+    url: string;
+  } | null;
+  person: {
+    id: number;
+    name: string;
+    email?: string;
+  } | null;
+  org: {
+    id: number;
+    name: string;
+  } | null;
 }
 
-export interface EnrichedDeal {
-  id: number;
+export interface DealItem {
+  deal_id: number;
   title: string;
-  value: number;
-  currency: string;
+  stage_id: number;
   stage_name: string;
-  person_name: string;
-  person_email?: string;
-  person_phone?: string;
-  org_name: string;
-  deal_url: string;
-  missing_next_action: boolean;
+  owner_id?: number;
+  undone_activities_count?: number;
+  next_activity_id: number | null;
+  last_outgoing_mail_time: string | null;
+  last_incoming_mail_time: string | null;
+  url: string;
+  person: {
+    id: number;
+    name: string;
+  } | null;
+  org: {
+    id: number;
+    name: string;
+  } | null;
 }
 
 export interface SalesQueueDigest {
   generated_at: string;
   timezone: string;
-  overdue_activities: EnrichedActivity[];
-  today_activities: EnrichedActivity[];
-  deals_missing_next_action: EnrichedDeal[];
-  summary: {
-    total_overdue: number;
-    total_today: number;
-    total_deals_missing_action: number;
+  sections: {
+    overdue: ActivityItem[];
+    due_today: ActivityItem[];
+    missing_next_action: DealItem[];
+  };
+  stats: {
+    overdue_count: number;
+    due_today_count: number;
+    missing_next_action_count: number;
+  };
+  source: {
+    filter_ids: {
+      overdue_activities_filter_id: number;
+      today_activities_filter_id: number;
+      missing_next_action_deals_filter_id: number;
+    };
   };
 }
 
 export class SalesQueueService {
   private client: PipedriveClient;
   private cache: Cache;
-  private timezone = 'Europe/Madrid';
-  private stagesCache: Map<number, string> = new Map();
+  private timezone: string;
+  private companyDomain: string;
+  private cacheTTL: number;
 
-  constructor(apiToken: string) {
-    this.client = new PipedriveClient(apiToken);
+  constructor(
+    apiToken: string,
+    baseURL = 'https://api.pipedrive.com/v2',
+    companyDomain = 'app.pipedrive.com',
+    timezone = 'Europe/Madrid',
+    cacheTTL = 3600
+  ) {
+    this.client = new PipedriveClient(apiToken, baseURL);
     this.cache = new Cache();
+    this.companyDomain = companyDomain;
+    this.timezone = timezone;
+    this.cacheTTL = cacheTTL;
   }
 
   private getDealUrl(dealId: number): string {
-    // Pipedrive deal URL format
-    return `https://app.pipedrive.com/deal/${dealId}`;
+    return `https://${this.companyDomain}/deal/${dealId}`;
   }
 
-  private async loadStages(): Promise<void> {
+  private async loadStages(): Promise<Map<number, string>> {
     const cacheKey = 'stages_all';
     let stages = this.cache.get<Stage[]>(cacheKey);
 
     if (!stages) {
       stages = await this.client.getAllStages();
-      this.cache.set(cacheKey, stages, 3600); // Cache for 1 hour
+      this.cache.set(cacheKey, stages, this.cacheTTL);
     }
 
-    this.stagesCache.clear();
+    const stagesMap = new Map<number, string>();
     for (const stage of stages) {
-      this.stagesCache.set(stage.id, stage.name);
+      stagesMap.set(stage.id, stage.name);
     }
+    return stagesMap;
   }
 
-  private async enrichActivity(activity: Activity): Promise<EnrichedActivity> {
-    const now = toZonedTime(new Date(), this.timezone);
+  private async fetchAllActivitiesByFilter(
+    filterId: number,
+    limit: number
+  ): Promise<Activity[]> {
+    const activities: Activity[] = [];
+    let cursor: string | undefined = undefined;
+
+    while (activities.length < limit) {
+      const batchLimit = Math.min(100, limit - activities.length);
+      const response = await this.client.getActivitiesByFilter(filterId, batchLimit, cursor);
+      
+      if (response.data && response.data.length > 0) {
+        activities.push(...response.data);
+      }
+      
+      // Check if there are more items to fetch
+      const nextCursor = response.additional_data?.pagination?.next_cursor;
+      if (!nextCursor || activities.length >= limit) {
+        break;
+      }
+      cursor = nextCursor;
+    }
+
+    return activities.slice(0, limit);
+  }
+
+  private async fetchAllDealsByFilter(
+    filterId: number,
+    limit: number
+  ): Promise<Deal[]> {
+    const deals: Deal[] = [];
+    let cursor: string | undefined = undefined;
+
+    while (deals.length < limit) {
+      const batchLimit = Math.min(100, limit - deals.length);
+      const response = await this.client.getDealsByFilter(filterId, batchLimit, cursor);
+      
+      if (response.data && response.data.length > 0) {
+        deals.push(...response.data);
+      }
+      
+      // Check if there are more items to fetch
+      const nextCursor = response.additional_data?.pagination?.next_cursor;
+      if (!nextCursor || deals.length >= limit) {
+        break;
+      }
+      cursor = nextCursor;
+    }
+
+    return deals.slice(0, limit);
+  }
+
+  private enrichActivity(
+    activity: Activity,
+    stagesMap: Map<number, string>,
+    personsMap: Map<number, Person>,
+    orgsMap: Map<number, Organization>,
+    now: Date
+  ): ActivityItem {
     const dueDate = parseISO(activity.due_date);
-    const isOverdue = isBefore(dueDate, startOfDay(now));
+    const daysOverdue = isBefore(dueDate, startOfDay(now)) 
+      ? differenceInDays(startOfDay(now), dueDate)
+      : undefined;
 
-    let personEmail: string | undefined;
-    let personPhone: string | undefined;
+    let deal = null;
+    if (activity.deal_id) {
+      deal = {
+        deal_id: activity.deal_id,
+        title: activity.deal_title || '',
+        stage_id: 0, // We don't have stage_id for activity, would need to fetch deal
+        stage_name: '',
+        url: this.getDealUrl(activity.deal_id),
+      };
+    }
 
+    let person = null;
     if (activity.person_id) {
-      const cacheKey = `person_${activity.person_id}`;
-      let person = this.cache.get<{ email?: Array<{ value: string; primary: boolean }>; phone?: Array<{ value: string; primary: boolean }> }>(cacheKey);
+      const personData = personsMap.get(activity.person_id);
+      person = {
+        id: activity.person_id,
+        name: activity.person_name || 'Unknown',
+        email: personData?.email?.find(e => e.primary)?.value || personData?.email?.[0]?.value,
+      };
+    }
 
-      if (!person) {
-        const fetchedPerson = await this.client.getPerson(activity.person_id);
-        if (fetchedPerson) {
-          person = fetchedPerson;
-          this.cache.set(cacheKey, person, 1800); // Cache for 30 minutes
-        }
-      }
-
-      if (person) {
-        const primaryEmail = person.email?.find((e) => e.primary);
-        const primaryPhone = person.phone?.find((p) => p.primary);
-        personEmail = primaryEmail?.value || person.email?.[0]?.value;
-        personPhone = primaryPhone?.value || person.phone?.[0]?.value;
-      }
+    let org = null;
+    if (activity.org_id) {
+      const orgData = orgsMap.get(activity.org_id);
+      org = {
+        id: activity.org_id,
+        name: activity.org_name || orgData?.name || 'Unknown',
+      };
     }
 
     return {
-      id: activity.id,
-      subject: activity.subject,
-      type: activity.type,
+      activity_id: activity.id,
+      activity_subject: activity.subject,
+      activity_type: activity.type,
       due_date: activity.due_date,
-      due_time: activity.due_time || '',
-      person_name: activity.person_name || 'Unknown',
-      person_email: personEmail,
-      person_phone: personPhone,
-      org_name: activity.org_name || '',
-      deal_title: activity.deal_title || '',
-      deal_url: activity.deal_id ? this.getDealUrl(activity.deal_id) : '',
-      is_overdue: isOverdue,
+      days_overdue: daysOverdue,
+      deal,
+      person,
+      org,
     };
   }
 
-  private async enrichDeal(deal: Deal): Promise<EnrichedDeal> {
-    await this.loadStages();
-
-    let personEmail: string | undefined;
-    let personPhone: string | undefined;
-
+  private enrichDeal(
+    deal: Deal,
+    stagesMap: Map<number, string>,
+    personsMap: Map<number, Person>,
+    orgsMap: Map<number, Organization>
+  ): DealItem {
+    let person = null;
     if (deal.person_id) {
-      const cacheKey = `person_${deal.person_id}`;
-      let person = this.cache.get<{ email?: Array<{ value: string; primary: boolean }>; phone?: Array<{ value: string; primary: boolean }> }>(cacheKey);
+      const personData = personsMap.get(deal.person_id);
+      person = {
+        id: deal.person_id,
+        name: deal.person_name || personData?.name || 'Unknown',
+      };
+    }
 
-      if (!person) {
-        const fetchedPerson = await this.client.getPerson(deal.person_id);
-        if (fetchedPerson) {
-          person = fetchedPerson;
-          this.cache.set(cacheKey, person, 1800); // Cache for 30 minutes
-        }
-      }
-
-      if (person) {
-        const primaryEmail = person.email?.find((e) => e.primary);
-        const primaryPhone = person.phone?.find((p) => p.primary);
-        personEmail = primaryEmail?.value || person.email?.[0]?.value;
-        personPhone = primaryPhone?.value || person.phone?.[0]?.value;
-      }
+    let org = null;
+    if (deal.org_id) {
+      const orgData = orgsMap.get(deal.org_id);
+      org = {
+        id: deal.org_id,
+        name: deal.org_name || orgData?.name || 'Unknown',
+      };
     }
 
     return {
-      id: deal.id,
+      deal_id: deal.id,
       title: deal.title,
-      value: deal.value,
-      currency: deal.currency,
-      stage_name: this.stagesCache.get(deal.stage_id) || `Stage ${deal.stage_id}`,
-      person_name: deal.person_name || 'Unknown',
-      person_email: personEmail,
-      person_phone: personPhone,
-      org_name: deal.org_name || '',
-      deal_url: this.getDealUrl(deal.id),
-      missing_next_action: !deal.next_activity_id,
+      stage_id: deal.stage_id,
+      stage_name: stagesMap.get(deal.stage_id) || `Stage ${deal.stage_id}`,
+      owner_id: deal.owner_id,
+      undone_activities_count: deal.undone_activities_count,
+      next_activity_id: deal.next_activity_id || null,
+      last_outgoing_mail_time: deal.last_outgoing_mail_time || null,
+      last_incoming_mail_time: deal.last_incoming_mail_time || null,
+      url: this.getDealUrl(deal.id),
+      person,
+      org,
     };
   }
 
@@ -165,51 +262,84 @@ export class SalesQueueService {
     overdueFilterId: number,
     todayFilterId: number,
     missingActionFilterId: number,
-    maxResults = 50
+    limits: { overdue: number; today: number; missing: number },
+    timezone?: string,
+    now?: Date,
+    includePeopleOrgs = true
   ): Promise<SalesQueueDigest> {
-    const now = toZonedTime(new Date(), this.timezone);
-    const generatedAt = format(now, 'yyyy-MM-dd HH:mm:ss zzz', { timeZone: this.timezone });
+    const tz = timezone || this.timezone;
+    const currentTime = now ? toZonedTime(now, tz) : toZonedTime(new Date(), tz);
+    const generatedAt = format(currentTime, "yyyy-MM-dd'T'HH:mm:ssXXX", { timeZone: tz });
 
-    // Fetch overdue activities
-    const overdueResponse = await this.client.getActivitiesByFilter(
-      overdueFilterId,
-      0,
-      maxResults
-    );
-    const overdueActivities = await Promise.all(
-      (overdueResponse.data || []).map(activity => this.enrichActivity(activity))
+    // Load stages map
+    const stagesMap = await this.loadStages();
+
+    // Fetch all data
+    const [overdueActivities, todayActivities, missingActionDeals] = await Promise.all([
+      this.fetchAllActivitiesByFilter(overdueFilterId, limits.overdue),
+      this.fetchAllActivitiesByFilter(todayFilterId, limits.today),
+      this.fetchAllDealsByFilter(missingActionFilterId, limits.missing),
+    ]);
+
+    // Collect all person and org IDs for bulk fetching
+    let personsMap = new Map<number, Person>();
+    let orgsMap = new Map<number, Organization>();
+
+    if (includePeopleOrgs) {
+      const personIds = new Set<number>();
+      const orgIds = new Set<number>();
+
+      // Collect IDs from activities
+      for (const activity of [...overdueActivities, ...todayActivities]) {
+        if (activity.person_id) personIds.add(activity.person_id);
+        if (activity.org_id) orgIds.add(activity.org_id);
+      }
+
+      // Collect IDs from deals
+      for (const deal of missingActionDeals) {
+        if (deal.person_id) personIds.add(deal.person_id);
+        if (deal.org_id) orgIds.add(deal.org_id);
+      }
+
+      // Bulk fetch persons and orgs
+      [personsMap, orgsMap] = await Promise.all([
+        this.client.getPersonsBulk(Array.from(personIds)),
+        this.client.getOrganizationsBulk(Array.from(orgIds)),
+      ]);
+    }
+
+    // Enrich the data
+    const overdueItems = overdueActivities.map(activity =>
+      this.enrichActivity(activity, stagesMap, personsMap, orgsMap, currentTime)
     );
 
-    // Fetch today's activities
-    const todayResponse = await this.client.getActivitiesByFilter(
-      todayFilterId,
-      0,
-      maxResults
-    );
-    const todayActivities = await Promise.all(
-      (todayResponse.data || []).map(activity => this.enrichActivity(activity))
+    const todayItems = todayActivities.map(activity =>
+      this.enrichActivity(activity, stagesMap, personsMap, orgsMap, currentTime)
     );
 
-    // Fetch deals missing next action
-    const missingActionResponse = await this.client.getDealsByFilter(
-      missingActionFilterId,
-      0,
-      maxResults
-    );
-    const dealsNeedingAction = await Promise.all(
-      (missingActionResponse.data || []).map(deal => this.enrichDeal(deal))
+    const missingActionItems = missingActionDeals.map(deal =>
+      this.enrichDeal(deal, stagesMap, personsMap, orgsMap)
     );
 
     return {
       generated_at: generatedAt,
-      timezone: this.timezone,
-      overdue_activities: overdueActivities,
-      today_activities: todayActivities,
-      deals_missing_next_action: dealsNeedingAction,
-      summary: {
-        total_overdue: overdueActivities.length,
-        total_today: todayActivities.length,
-        total_deals_missing_action: dealsNeedingAction.length,
+      timezone: tz,
+      sections: {
+        overdue: overdueItems,
+        due_today: todayItems,
+        missing_next_action: missingActionItems,
+      },
+      stats: {
+        overdue_count: overdueItems.length,
+        due_today_count: todayItems.length,
+        missing_next_action_count: missingActionItems.length,
+      },
+      source: {
+        filter_ids: {
+          overdue_activities_filter_id: overdueFilterId,
+          today_activities_filter_id: todayFilterId,
+          missing_next_action_deals_filter_id: missingActionFilterId,
+        },
       },
     };
   }
