@@ -27,9 +27,10 @@ Read-only MCP (Model Context Protocol) server for Pipedrive that provides a dige
 ## Installation
 
 ```bash
-npm install
-npm run build
+make docker-build
 ```
+
+This compiles TypeScript and builds the Docker image.
 
 ## Configuration
 
@@ -88,26 +89,6 @@ Get the filter IDs from the Pipedrive UI or API. These will be provided when cal
 
 To use this server with an MCP client (like Claude Desktop), add the following to your MCP configuration file:
 
-#### Using Node.js
-
-```json
-{
-  "mcpServers": {
-    "pipedrive": {
-      "command": "node",
-      "args": ["/absolute/path/to/pipedrive-mcp/dist/index.js"],
-      "env": {
-        "PIPEDRIVE_API_TOKEN": "your_api_token_here",
-        "PIPEDRIVE_COMPANY_DOMAIN": "yourcompany.pipedrive.com",
-        "DEFAULT_TIMEZONE": "Europe/Madrid"
-      }
-    }
-  }
-}
-```
-
-#### Using Docker
-
 ```json
 {
   "mcpServers": {
@@ -117,10 +98,7 @@ To use this server with an MCP client (like Claude Desktop), add the following t
         "run",
         "-i",
         "--rm",
-        "-e", "PIPEDRIVE_API_TOKEN=your_api_token_here",
-        "-e", "PIPEDRIVE_OVERDUE_FILTER_ID=123",
-        "-e", "PIPEDRIVE_TODAY_FILTER_ID=456",
-        "-e", "PIPEDRIVE_MISSING_ACTION_FILTER_ID=789",
+        "--env-file", "/absolute/path/to/pipedrive-mcp/.env",
         "pipedrive-mcp"
       ]
     }
@@ -132,47 +110,47 @@ See `mcp-config-example.json` for a template.
 
 ### Running the Server
 
-#### Option 1: Using Node.js directly
+#### Option 1: Using Make (Recommended)
+
+The project includes a `Makefile` with convenient targets:
 
 ```bash
-npm start
+# Full build (TypeScript + Docker image)
+make docker-build
+
+# Run the container (uses .env file)
+make docker-run
+
+# Stop the container
+make docker-stop
+
+# Clean compiled output
+make clean
+
+# Full rebuild from scratch
+make all
+
+# Show all available targets
+make help
 ```
 
-Or with environment variables directly:
+#### Option 2: Using Docker manually
 
 ```bash
-PIPEDRIVE_API_TOKEN=xxx \
-PIPEDRIVE_COMPANY_DOMAIN=yourcompany.pipedrive.com \
-npm start
-```
-
-#### Option 2: Using Docker
-
-First, build the TypeScript code locally, then build the Docker image:
-
-```bash
-# Option A: Use the helper script (make it executable first if needed)
-chmod +x docker-build.sh
-./docker-build.sh
-
-# Option B: Manual build
+# Build TypeScript and Docker image
 npm run build
 docker build -t pipedrive-mcp .
 
-# Run the container with environment variables
-docker run -i \
-  -e PIPEDRIVE_API_TOKEN=xxx \
-  -e PIPEDRIVE_OVERDUE_FILTER_ID=123 \
-  -e PIPEDRIVE_TODAY_FILTER_ID=456 \
-  -e PIPEDRIVE_MISSING_ACTION_FILTER_ID=789 \
+# Run the container with .env file
+docker run -i --rm \
+  --env-file .env \
   pipedrive-mcp
 ```
 
 #### Option 3: Using Docker Compose
 
-1. Build the TypeScript code: `npm run build` (or use `./docker-build.sh`)
-2. Make sure your `.env` file is configured with the required variables
-3. Run with docker compose:
+1. Make sure your `.env` file is configured with the required variables
+2. Run with docker compose:
 
 ```bash
 # Build and start the container
@@ -184,6 +162,8 @@ docker compose logs -f
 # Stop the container
 docker compose down
 ```
+
+> **Note:** Docker Compose loads environment variables from `.env` via `env_file` directive.
 
 ### MCP Tool
 
@@ -358,11 +338,14 @@ The server implements two layers of error handling as per MCP spec:
 ## Development
 
 ```bash
-# Build
-npm run build
+# Build TypeScript only
+make build
 
-# Development mode (rebuild + run)
-npm run dev
+# Full rebuild (clean + Docker image)
+make all
+
+# Clean compiled output
+make clean
 ```
 
 ## Acceptance Criteria

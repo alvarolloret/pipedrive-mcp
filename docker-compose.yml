@@ -4,17 +4,10 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: pipedrive-mcp
-    environment:
-      # Required: Pipedrive API Token
-      - PIPEDRIVE_API_TOKEN=${PIPEDRIVE_API_TOKEN}
-      
-      # Required: Pipedrive Filter IDs
-      - PIPEDRIVE_OVERDUE_FILTER_ID=${PIPEDRIVE_OVERDUE_FILTER_ID}
-      - PIPEDRIVE_TODAY_FILTER_ID=${PIPEDRIVE_TODAY_FILTER_ID}
-      - PIPEDRIVE_MISSING_ACTION_FILTER_ID=${PIPEDRIVE_MISSING_ACTION_FILTER_ID}
-    
+    env_file:
+      - .env
+
     # Use stdin/stdout for MCP protocol
     stdin_open: true
-    tty: true
-    
+
     restart: unless-stopped
