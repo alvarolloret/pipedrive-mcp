@@ -24,13 +24,11 @@ Read-only MCP (Model Context Protocol) server for Pipedrive that provides a dige
   - Bearer authentication for Pipedrive API
 - **Flexible**: Filter IDs provided per request (not hardcoded in environment)
 
-## Installation
+## Quick Start
 
-```bash
-make docker-build
-```
-
-This compiles TypeScript and builds the Docker image.
+1. `git clone https://github.com/alvarolloret/pipedrive-mcp.git && cd pipedrive-mcp`
+2. `make all`
+3. Add MCP with one command (pick one): `claude mcp add pipedrive -- docker run -i --rm --env-file /Users/alvarodemuller/miinta/pipedrive-mcp/.env pipedrive-mcp` or `codex mcp add pipedrive -- docker run -i --rm --env-file /Users/alvarodemuller/miinta/pipedrive-mcp/.env pipedrive-mcp`
 
 ## Configuration
 
@@ -83,89 +81,7 @@ You need to create three saved filters in your Pipedrive account:
 
 Get the filter IDs from the Pipedrive UI or API. These will be provided when calling the tool (not in environment variables).
 
-## Usage
-
-### MCP Client Configuration
-
-To use this server with an MCP client (like Claude Desktop), add the following to your MCP configuration file:
-
-```json
-{
-  "mcpServers": {
-    "pipedrive": {
-      "command": "docker",
-      "args": [
-        "run",
-        "-i",
-        "--rm",
-        "--env-file", "/absolute/path/to/pipedrive-mcp/.env",
-        "pipedrive-mcp"
-      ]
-    }
-  }
-}
-```
-
-See `mcp-config-example.json` for a template.
-
-### Running the Server
-
-#### Option 1: Using Make (Recommended)
-
-The project includes a `Makefile` with convenient targets:
-
-```bash
-# Full build (TypeScript + Docker image)
-make docker-build
-
-# Run the container (uses .env file)
-make docker-run
-
-# Stop the container
-make docker-stop
-
-# Clean compiled output
-make clean
-
-# Full rebuild from scratch
-make all
-
-# Show all available targets
-make help
-```
-
-#### Option 2: Using Docker manually
-
-```bash
-# Build TypeScript and Docker image
-npm run build
-docker build -t pipedrive-mcp .
-
-# Run the container with .env file
-docker run -i --rm \
-  --env-file .env \
-  pipedrive-mcp
-```
-
-#### Option 3: Using Docker Compose
-
-1. Make sure your `.env` file is configured with the required variables
-2. Run with docker compose:
-
-```bash
-# Build and start the container
-docker compose up -d
-
-# View logs
-docker compose logs -f
-
-# Stop the container
-docker compose down
-```
-
-> **Note:** Docker Compose loads environment variables from `.env` via `env_file` directive.
-
-### MCP Tool
+## MCP Tool
 
 The server exposes one tool: `miinta.sales_queue.get`
 
