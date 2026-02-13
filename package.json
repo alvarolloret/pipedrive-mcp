@@ -1,0 +1,37 @@
+{
+  "name": "pipedrive-mcp",
+  "version": "0.1.0",
+  "description": "Miinta Pipedrive MCP v0.1 - Read-only MCP server for Pipedrive sales digest",
+  "main": "dist/index.js",
+  "bin": {
+    "pipedrive-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc && node dist/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alvarolloret/pipedrive-mcp.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/alvarolloret/pipedrive-mcp/issues"
+  },
+  "homepage": "https://github.com/alvarolloret/pipedrive-mcp#readme",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "axios": "^1.13.5",
+    "date-fns": "^4.1.0",
+    "date-fns-tz": "^3.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "typescript": "^5.9.3"
+  }
+}
