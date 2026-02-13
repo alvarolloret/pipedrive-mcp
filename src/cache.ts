@@ -42,6 +42,14 @@ export class Cache {
     return this.cache.delete(key);
   }
 
+  deleteByPrefix(prefix: string): void {
+    for (const key of this.cache.keys()) {
+      if (key.startsWith(prefix)) {
+        this.cache.delete(key);
+      }
+    }
+  }
+
   has(key: string): boolean {
     const entry = this.cache.get(key);
     if (!entry) {

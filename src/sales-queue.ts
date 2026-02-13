@@ -102,6 +102,25 @@ export class SalesQueueService {
     return filters;
   }
 
+  async createFilter(
+    name: string,
+    type: string,
+    conditions: Record<string, any>
+  ): Promise<PipedriveFilter> {
+    const filter = await this.client.createFilter(name, type, conditions);
+    // Invalidate filter caches so subsequent list calls reflect the new filter
+    this.cache.delete(`filters_all`);
+    this.cache.delete(`filters_${type}`);
+    return filter;
+  }
+
+  async deleteFilter(id: number): Promise<number> {
+    const deletedId = await this.client.deleteFilter(id);
+    // Invalidate all filter caches since we don't know the type
+    this.cache.deleteByPrefix('filters_');
+    return deletedId;
+  }
+
   async resolveFilterId(value: number | string, expectedType?: string): Promise<number> {
     if (typeof value === 'number') {
       return value;

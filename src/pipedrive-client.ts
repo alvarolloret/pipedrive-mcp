@@ -258,6 +258,26 @@ export class PipedriveClient {
     return response.data?.data || [];
   }
 
+  async createFilter(
+    name: string,
+    type: string,
+    conditions: Record<string, any>
+  ): Promise<PipedriveFilter> {
+    const v1BaseURL = this.baseURL.replace('/v2', '/v1');
+    const response = await this.client.post(`${v1BaseURL}/filters`, {
+      name,
+      type,
+      conditions,
+    });
+    return response.data.data;
+  }
+
+  async deleteFilter(id: number): Promise<number> {
+    const v1BaseURL = this.baseURL.replace('/v2', '/v1');
+    const response = await this.client.delete(`${v1BaseURL}/filters/${id}`);
+    return response.data.data.id;
+  }
+
   async resolveFilterByName(name: string, type?: string): Promise<PipedriveFilter> {
     const filters = await this.getFilters(type);
     const matches = filters.filter(

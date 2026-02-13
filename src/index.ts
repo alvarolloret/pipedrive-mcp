@@ -58,6 +58,53 @@ const FILTERS_LIST_TOOL: Tool = {
   },
 };
 
+const FILTERS_CREATE_TOOL: Tool = {
+  name: "miinta.filters.create",
+  description:
+    "Create a new Pipedrive saved filter. Useful for creating custom activity or deal filters " +
+    "that can then be used with miinta.sales_queue.get. Returns the created filter with its ID.",
+  inputSchema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      name: {
+        type: "string",
+        description: "Name for the new filter",
+      },
+      type: {
+        type: "string",
+        description: "The entity type this filter applies to.",
+        enum: ["deals", "activity", "people", "org", "products", "leads", "projects"],
+      },
+      conditions: {
+        type: "object",
+        description:
+          'Pipedrive filter conditions JSON. Structure: {"glue":"and","conditions":[{"glue":"and","conditions":[{condition objects}]}]}. ' +
+          'Each condition object has: object (e.g. "deal","activity"), field_id, operator (e.g. "=","!=","IS NOT NULL"), value, extra_value. ' +
+          'Max 16 conditions per filter.',
+      },
+    },
+    required: ["name", "type", "conditions"],
+  },
+};
+
+const FILTERS_DELETE_TOOL: Tool = {
+  name: "miinta.filters.delete",
+  description:
+    "Delete a Pipedrive saved filter by its ID. Use miinta.filters.list to find filter IDs.",
+  inputSchema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      id: {
+        type: "integer",
+        description: "The ID of the filter to delete",
+      },
+    },
+    required: ["id"],
+  },
+};
+
 const SALES_QUEUE_TOOL: Tool = {
   name: "miinta.sales_queue.get",
   description:
@@ -127,7 +174,7 @@ const server = new Server(
 // Handle tool listing
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
-    tools: [FILTERS_LIST_TOOL, SALES_QUEUE_TOOL],
+    tools: [FILTERS_LIST_TOOL, FILTERS_CREATE_TOOL, FILTERS_DELETE_TOOL, SALES_QUEUE_TOOL],
   };
 });
 
@@ -151,6 +198,68 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           {
             type: "text",
             text: `Error fetching filters: ${error.message}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  if (request.params.name === "miinta.filters.create") {
+    try {
+      const args = request.params.arguments as any;
+      if (!args?.name || !args?.type || !args?.conditions) {
+        return {
+          content: [{ type: "text", text: "Error: name, type, and conditions are required" }],
+          isError: true,
+        };
+      }
+      const filter = await salesQueueService.createFilter(args.name, args.type, args.conditions);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(filter, null, 2),
+          },
+        ],
+      };
+    } catch (error: any) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error creating filter: ${error.message}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  if (request.params.name === "miinta.filters.delete") {
+    try {
+      const args = request.params.arguments as any;
+      if (!args?.id) {
+        return {
+          content: [{ type: "text", text: "Error: id is required" }],
+          isError: true,
+        };
+      }
+      const deletedId = await salesQueueService.deleteFilter(args.id);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ deleted: true, id: deletedId }),
+          },
+        ],
+      };
+    } catch (error: any) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error deleting filter: ${error.message}`,
           },
         ],
         isError: true,
