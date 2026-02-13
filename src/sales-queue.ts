@@ -167,6 +167,7 @@ export class SalesQueueService {
   private enrichActivity(
     activity: Activity,
     stagesMap: Map<number, string>,
+    dealsMap: Map<number, Deal>,
     personsMap: Map<number, Person>,
     orgsMap: Map<number, Organization>,
     now: Date
@@ -178,11 +179,13 @@ export class SalesQueueService {
 
     let deal = null;
     if (activity.deal_id) {
+      const dealData = dealsMap.get(activity.deal_id);
+      const stageId = dealData?.stage_id || 0;
       deal = {
         deal_id: activity.deal_id,
-        title: activity.deal_title || '',
-        stage_id: 0, // We don't have stage_id for activity, would need to fetch deal
-        stage_name: '',
+        title: activity.deal_title || dealData?.title || '',
+        stage_id: stageId,
+        stage_name: stageId ? (stagesMap.get(stageId) || `Stage ${stageId}`) : '',
         url: this.getDealUrl(activity.deal_id),
       };
     }
@@ -281,18 +284,21 @@ export class SalesQueueService {
       this.fetchAllDealsByFilter(missingActionFilterId, limits.missing),
     ]);
 
-    // Collect all person and org IDs for bulk fetching
+    // Collect all person, org, and deal IDs for bulk fetching
     let personsMap = new Map<number, Person>();
     let orgsMap = new Map<number, Organization>();
+    let dealsMap = new Map<number, Deal>();
 
     if (includePeopleOrgs) {
       const personIds = new Set<number>();
       const orgIds = new Set<number>();
+      const dealIds = new Set<number>();
 
       // Collect IDs from activities
       for (const activity of [...overdueActivities, ...todayActivities]) {
         if (activity.person_id) personIds.add(activity.person_id);
         if (activity.org_id) orgIds.add(activity.org_id);
+        if (activity.deal_id) dealIds.add(activity.deal_id);
       }
 
       // Collect IDs from deals
@@ -301,20 +307,21 @@ export class SalesQueueService {
         if (deal.org_id) orgIds.add(deal.org_id);
       }
 
-      // Bulk fetch persons and orgs
-      [personsMap, orgsMap] = await Promise.all([
+      // Bulk fetch persons, orgs, and deals
+      [personsMap, orgsMap, dealsMap] = await Promise.all([
         this.client.getPersonsBulk(Array.from(personIds)),
         this.client.getOrganizationsBulk(Array.from(orgIds)),
+        this.client.getDealsBulk(Array.from(dealIds)),
       ]);
     }
 
     // Enrich the data
     const overdueItems = overdueActivities.map(activity =>
-      this.enrichActivity(activity, stagesMap, personsMap, orgsMap, currentTime)
+      this.enrichActivity(activity, stagesMap, dealsMap, personsMap, orgsMap, currentTime)
     );
 
     const todayItems = todayActivities.map(activity =>
-      this.enrichActivity(activity, stagesMap, personsMap, orgsMap, currentTime)
+      this.enrichActivity(activity, stagesMap, dealsMap, personsMap, orgsMap, currentTime)
     );
 
     const missingActionItems = missingActionDeals.map(deal =>

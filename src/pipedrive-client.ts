@@ -162,10 +162,34 @@ export class PipedriveClient {
         }
       } catch (error) {
         // Continue with next batch even if one fails
-        console.error(`Error fetching persons batch: ${error}`);
+        console.error(`Error fetching persons batch ${i}-${Math.min(i + batch.length, personIds.length)}: ${error}`);
       }
     }
     return personsMap;
+  }
+
+  async getDealsBulk(dealIds: number[]): Promise<Map<number, Deal>> {
+    const dealsMap = new Map<number, Deal>();
+    if (dealIds.length === 0) return dealsMap;
+
+    // Fetch in batches of 100
+    for (let i = 0; i < dealIds.length; i += 100) {
+      const batch = dealIds.slice(i, i + 100);
+      try {
+        const response = await this.client.get(`/deals`, {
+          params: { ids: batch.join(',') },
+        });
+        if (response.data.data) {
+          for (const deal of response.data.data) {
+            dealsMap.set(deal.id, deal);
+          }
+        }
+      } catch (error) {
+        // Continue with next batch even if one fails
+        console.error(`Error fetching deals batch ${i}-${Math.min(i + batch.length, dealIds.length)}: ${error}`);
+      }
+    }
+    return dealsMap;
   }
 
   async getOrganization(orgId: number): Promise<Organization | null> {
@@ -195,7 +219,7 @@ export class PipedriveClient {
         }
       } catch (error) {
         // Continue with next batch even if one fails
-        console.error(`Error fetching organizations batch: ${error}`);
+        console.error(`Error fetching organizations batch ${i}-${Math.min(i + batch.length, orgIds.length)}: ${error}`);
       }
     }
     return orgsMap;
