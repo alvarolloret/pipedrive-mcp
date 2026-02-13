@@ -38,11 +38,32 @@ const salesQueueService = new SalesQueueService(
   CACHE_TTL_SECONDS,
 );
 
-// Define the tool with new schema
+// Define the tools
+const FILTERS_LIST_TOOL: Tool = {
+  name: "miinta.filters.list",
+  description:
+    "List all available Pipedrive saved filters. Useful for discovering filter IDs and names " +
+    "before calling miinta.sales_queue.get. Optionally filter by type.",
+  inputSchema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      type: {
+        type: "string",
+        description:
+          'Optional filter type to narrow results.',
+        enum: ["deals", "activities", "people", "org", "products", "projects", "leads"],
+      },
+    },
+  },
+};
+
 const SALES_QUEUE_TOOL: Tool = {
   name: "miinta.sales_queue.get",
   description:
-    'Return a structured "morning queue" payload using three Pipedrive filter IDs, plus enrichment (deal title, stage name, org/person names, URLs).',
+    'Return a structured "morning queue" payload using three Pipedrive filters (by ID or name), ' +
+    'plus enrichment (deal title, stage name, org/person names, URLs). ' +
+    'Use miinta.filters.list to discover available filter names.',
   inputSchema: {
     type: "object",
     additionalProperties: false,
@@ -51,9 +72,18 @@ const SALES_QUEUE_TOOL: Tool = {
         type: "object",
         additionalProperties: false,
         properties: {
-          overdue_activities_filter_id: { type: "integer" },
-          today_activities_filter_id: { type: "integer" },
-          missing_next_action_deals_filter_id: { type: "integer" },
+          overdue_activities_filter_id: {
+            oneOf: [{ type: "integer" }, { type: "string" }],
+            description: "Pipedrive filter ID (integer) or filter name (string) for overdue activities",
+          },
+          today_activities_filter_id: {
+            oneOf: [{ type: "integer" }, { type: "string" }],
+            description: "Pipedrive filter ID (integer) or filter name (string) for today's activities",
+          },
+          missing_next_action_deals_filter_id: {
+            oneOf: [{ type: "integer" }, { type: "string" }],
+            description: "Pipedrive filter ID (integer) or filter name (string) for deals missing next action",
+          },
         },
         required: [
           "overdue_activities_filter_id",
@@ -97,12 +127,37 @@ const server = new Server(
 // Handle tool listing
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
-    tools: [SALES_QUEUE_TOOL],
+    tools: [FILTERS_LIST_TOOL, SALES_QUEUE_TOOL],
   };
 });
 
 // Handle tool execution
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  if (request.params.name === "miinta.filters.list") {
+    try {
+      const args = request.params.arguments as any;
+      const filters = await salesQueueService.listFilters(args?.type);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(filters, null, 2),
+          },
+        ],
+      };
+    } catch (error: any) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error fetching filters: ${error.message}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
   if (request.params.name === "miinta.sales_queue.get") {
     try {
       const args = request.params.arguments as any;
@@ -126,7 +181,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         missing_next_action_deals_filter_id,
       } = args.filters;
 
-      // Validate filter IDs
+      // Validate filter values are provided
       if (
         !overdue_activities_filter_id ||
         !today_activities_filter_id ||
@@ -136,7 +191,30 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           content: [
             {
               type: "text",
-              text: "Error: All three filter IDs are required in filters object",
+              text: "Error: All three filter IDs or names are required in filters object",
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      // Resolve filter IDs (accepts integers or string names)
+      let resolvedOverdue: number;
+      let resolvedToday: number;
+      let resolvedMissing: number;
+
+      try {
+        [resolvedOverdue, resolvedToday, resolvedMissing] = await Promise.all([
+          salesQueueService.resolveFilterId(overdue_activities_filter_id, "activities"),
+          salesQueueService.resolveFilterId(today_activities_filter_id, "activities"),
+          salesQueueService.resolveFilterId(missing_next_action_deals_filter_id, "deals"),
+        ]);
+      } catch (error: any) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error resolving filter: ${error.message}`,
             },
           ],
           isError: true,
@@ -179,9 +257,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const now = args.now ? new Date(args.now) : undefined;
 
       const digest = await salesQueueService.getSalesQueueDigest(
-        overdue_activities_filter_id,
-        today_activities_filter_id,
-        missing_next_action_deals_filter_id,
+        resolvedOverdue,
+        resolvedToday,
+        resolvedMissing,
         limits,
         timezone,
         now,

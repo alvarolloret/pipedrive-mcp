@@ -1,4 +1,4 @@
-import { PipedriveClient, Activity, Deal, Stage, Person, Organization } from './pipedrive-client.js';
+import { PipedriveClient, Activity, Deal, Stage, Person, Organization, PipedriveFilter } from './pipedrive-client.js';
 import { Cache } from './cache.js';
 import { format, toZonedTime } from 'date-fns-tz';
 import { parseISO, startOfDay, isBefore, differenceInDays } from 'date-fns';
@@ -90,6 +90,24 @@ export class SalesQueueService {
     this.companyDomain = companyDomain;
     this.timezone = timezone;
     this.cacheTTL = cacheTTL;
+  }
+
+  async listFilters(type?: string): Promise<PipedriveFilter[]> {
+    const cacheKey = `filters_${type || 'all'}`;
+    let filters = this.cache.get<PipedriveFilter[]>(cacheKey);
+    if (!filters) {
+      filters = await this.client.getFilters(type);
+      this.cache.set(cacheKey, filters, this.cacheTTL);
+    }
+    return filters;
+  }
+
+  async resolveFilterId(value: number | string, expectedType?: string): Promise<number> {
+    if (typeof value === 'number') {
+      return value;
+    }
+    const filter = await this.client.resolveFilterByName(value, expectedType);
+    return filter.id;
   }
 
   private getDealUrl(dealId: number): string {

@@ -63,6 +63,12 @@ export interface PipedriveFilter {
   id: number;
   name: string;
   type: string;
+  active_flag: boolean;
+  user_id: number;
+  visible_to: number;
+  add_time: string;
+  update_time: string;
+  custom_view_id?: number;
 }
 
 export interface PaginatedResponse<T> {
@@ -88,8 +94,10 @@ export class PipedriveClient {
     this.client = axios.create({
       baseURL: this.baseURL,
       headers: {
-        'Authorization': `Bearer ${apiToken}`,
         'Content-Type': 'application/json',
+      },
+      params: {
+        api_token: apiToken,
       },
     });
   }
@@ -237,5 +245,38 @@ export class PipedriveClient {
   async getAllStages(): Promise<Stage[]> {
     const response = await this.client.get(`/stages`);
     return response.data.data || [];
+  }
+
+  async getFilters(type?: string): Promise<PipedriveFilter[]> {
+    // Filters endpoint is v1 only — derive v1 URL from the configured v2 base
+    const v1BaseURL = this.baseURL.replace('/v2', '/v1');
+    const params: Record<string, any> = {};
+    if (type) {
+      params.type = type;
+    }
+    const response = await this.client.get(`${v1BaseURL}/filters`, { params });
+    return response.data?.data || [];
+  }
+
+  async resolveFilterByName(name: string, type?: string): Promise<PipedriveFilter> {
+    const filters = await this.getFilters(type);
+    const matches = filters.filter(
+      f => f.name.toLowerCase() === name.toLowerCase()
+    );
+
+    if (matches.length === 0) {
+      throw new Error(
+        `No filter found with name "${name}"${type ? ` and type "${type}"` : ''}. ` +
+        `Use the miinta.filters.list tool to see available filters.`
+      );
+    }
+    if (matches.length > 1) {
+      const ids = matches.map(f => `${f.name} (id=${f.id}, type=${f.type})`).join(', ');
+      throw new Error(
+        `Multiple filters match name "${name}": ${ids}. ` +
+        `Please use the filter ID instead, or provide a more specific name.`
+      );
+    }
+    return matches[0];
   }
 }
