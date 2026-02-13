@@ -1,0 +1,33 @@
+# Node
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Development files
+*.log
+.DS_Store
+.env
+.env.local
+*.tsbuildinfo
+
+# Source files (we only need dist/)
+src
+tsconfig.json
+
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo

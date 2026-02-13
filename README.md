@@ -88,6 +88,8 @@ Get the filter IDs from the Pipedrive UI or API. These will be provided when cal
 
 To use this server with an MCP client (like Claude Desktop), add the following to your MCP configuration file:
 
+#### Using Node.js
+
 ```json
 {
   "mcpServers": {
@@ -104,9 +106,33 @@ To use this server with an MCP client (like Claude Desktop), add the following t
 }
 ```
 
+#### Using Docker
+
+```json
+{
+  "mcpServers": {
+    "pipedrive": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-e", "PIPEDRIVE_API_TOKEN=your_api_token_here",
+        "-e", "PIPEDRIVE_OVERDUE_FILTER_ID=123",
+        "-e", "PIPEDRIVE_TODAY_FILTER_ID=456",
+        "-e", "PIPEDRIVE_MISSING_ACTION_FILTER_ID=789",
+        "pipedrive-mcp"
+      ]
+    }
+  }
+}
+```
+
 See `mcp-config-example.json` for a template.
 
 ### Running the Server
+
+#### Option 1: Using Node.js directly
 
 ```bash
 npm start
@@ -118,6 +144,45 @@ Or with environment variables directly:
 PIPEDRIVE_API_TOKEN=xxx \
 PIPEDRIVE_COMPANY_DOMAIN=yourcompany.pipedrive.com \
 npm start
+```
+
+#### Option 2: Using Docker
+
+First, build the TypeScript code locally, then build the Docker image:
+
+```bash
+# Option A: Use the helper script (make it executable first if needed)
+chmod +x docker-build.sh
+./docker-build.sh
+
+# Option B: Manual build
+npm run build
+docker build -t pipedrive-mcp .
+
+# Run the container with environment variables
+docker run -i \
+  -e PIPEDRIVE_API_TOKEN=xxx \
+  -e PIPEDRIVE_OVERDUE_FILTER_ID=123 \
+  -e PIPEDRIVE_TODAY_FILTER_ID=456 \
+  -e PIPEDRIVE_MISSING_ACTION_FILTER_ID=789 \
+  pipedrive-mcp
+```
+
+#### Option 3: Using Docker Compose
+
+1. Build the TypeScript code: `npm run build` (or use `./docker-build.sh`)
+2. Make sure your `.env` file is configured with the required variables
+3. Run with docker compose:
+
+```bash
+# Build and start the container
+docker compose up -d
+
+# View logs
+docker compose logs -f
+
+# Stop the container
+docker compose down
 ```
 
 ### MCP Tool
