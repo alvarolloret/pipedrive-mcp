@@ -14,7 +14,8 @@ Read-only MCP (Model Context Protocol) server for Pipedrive that provides a morn
   - Pagination support (configurable max results)
   - Caching for improved performance
   - Europe/Madrid timezone support
-  - Streamable HTTP transport with Bearer authentication
+  - Standard MCP stdio transport for streaming communication
+  - Bearer authentication for Pipedrive API
 
 ## Installation
 

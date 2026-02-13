@@ -1,7 +1,7 @@
 import { PipedriveClient, Activity, Deal, Stage } from './pipedrive-client.js';
 import { Cache } from './cache.js';
 import { format, toZonedTime } from 'date-fns-tz';
-import { parseISO, startOfDay, endOfDay, isBefore, isToday } from 'date-fns';
+import { parseISO, startOfDay, isBefore } from 'date-fns';
 
 export interface EnrichedActivity {
   id: number;
@@ -86,18 +86,19 @@ export class SalesQueueService {
 
     if (activity.person_id) {
       const cacheKey = `person_${activity.person_id}`;
-      let person = this.cache.get<any>(cacheKey);
+      let person = this.cache.get<{ email?: Array<{ value: string; primary: boolean }>; phone?: Array<{ value: string; primary: boolean }> }>(cacheKey);
 
       if (!person) {
-        person = await this.client.getPerson(activity.person_id);
-        if (person) {
+        const fetchedPerson = await this.client.getPerson(activity.person_id);
+        if (fetchedPerson) {
+          person = fetchedPerson;
           this.cache.set(cacheKey, person, 1800); // Cache for 30 minutes
         }
       }
 
       if (person) {
-        const primaryEmail = person.email?.find((e: any) => e.primary);
-        const primaryPhone = person.phone?.find((p: any) => p.primary);
+        const primaryEmail = person.email?.find((e) => e.primary);
+        const primaryPhone = person.phone?.find((p) => p.primary);
         personEmail = primaryEmail?.value || person.email?.[0]?.value;
         personPhone = primaryPhone?.value || person.phone?.[0]?.value;
       }
@@ -127,18 +128,19 @@ export class SalesQueueService {
 
     if (deal.person_id) {
       const cacheKey = `person_${deal.person_id}`;
-      let person = this.cache.get<any>(cacheKey);
+      let person = this.cache.get<{ email?: Array<{ value: string; primary: boolean }>; phone?: Array<{ value: string; primary: boolean }> }>(cacheKey);
 
       if (!person) {
-        person = await this.client.getPerson(deal.person_id);
-        if (person) {
+        const fetchedPerson = await this.client.getPerson(deal.person_id);
+        if (fetchedPerson) {
+          person = fetchedPerson;
           this.cache.set(cacheKey, person, 1800); // Cache for 30 minutes
         }
       }
 
       if (person) {
-        const primaryEmail = person.email?.find((e: any) => e.primary);
-        const primaryPhone = person.phone?.find((p: any) => p.primary);
+        const primaryEmail = person.email?.find((e) => e.primary);
+        const primaryPhone = person.phone?.find((p) => p.primary);
         personEmail = primaryEmail?.value || person.email?.[0]?.value;
         personPhone = primaryPhone?.value || person.phone?.[0]?.value;
       }
