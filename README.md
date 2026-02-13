@@ -127,10 +127,11 @@ npm start
 First, build the TypeScript code locally, then build the Docker image:
 
 ```bash
-# Build the TypeScript code
-npm run build
+# Option A: Use the helper script
+./docker-build.sh
 
-# Build the Docker image
+# Option B: Manual build
+npm run build
 docker build -t pipedrive-mcp .
 
 # Run the container with environment variables
@@ -144,19 +145,19 @@ docker run -i \
 
 #### Option 3: Using Docker Compose
 
-1. Build the TypeScript code: `npm run build`
+1. Build the TypeScript code: `npm run build` (or use `./docker-build.sh`)
 2. Make sure your `.env` file is configured with the required variables
-3. Run with docker-compose:
+3. Run with docker compose:
 
 ```bash
 # Build and start the container
-docker-compose up -d
+docker compose up -d
 
 # View logs
-docker-compose logs -f
+docker compose logs -f
 
 # Stop the container
-docker-compose down
+docker compose down
 ```
 
 ### MCP Tool
