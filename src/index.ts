@@ -144,14 +144,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       };
 
       // Validate limits
-      if (limits.overdue < 1 || limits.overdue > 200 ||
-          limits.today < 1 || limits.today > 200 ||
-          limits.missing < 1 || limits.missing > 200) {
+      const validateLimit = (value: number, name: string): boolean => {
+        if (value < 1 || value > 200) {
+          return false;
+        }
+        return true;
+      };
+
+      if (!validateLimit(limits.overdue, 'overdue') ||
+          !validateLimit(limits.today, 'today') ||
+          !validateLimit(limits.missing, 'missing')) {
         return {
           content: [
             {
               type: 'text',
-              text: 'Error: limits must be between 1 and 200',
+              text: 'Error: All limits must be between 1 and 200',
             },
           ],
           isError: true,

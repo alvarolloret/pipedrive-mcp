@@ -172,9 +172,10 @@ export class SalesQueueService {
     orgsMap: Map<number, Organization>,
     now: Date
   ): ActivityItem {
-    const dueDate = parseISO(activity.due_date);
-    const daysOverdue = isBefore(dueDate, startOfDay(now)) 
-      ? differenceInDays(startOfDay(now), dueDate)
+    const dueDate = startOfDay(parseISO(activity.due_date));
+    const nowStartOfDay = startOfDay(now);
+    const daysOverdue = isBefore(dueDate, nowStartOfDay) 
+      ? differenceInDays(nowStartOfDay, dueDate)
       : undefined;
 
     let deal = null;

@@ -162,7 +162,7 @@ export class PipedriveClient {
         }
       } catch (error) {
         // Continue with next batch even if one fails
-        console.error(`Error fetching persons batch ${i}-${Math.min(i + batch.length, personIds.length)}: ${error}`);
+        console.error(`Error fetching persons batch ${i + 1}-${Math.min(i + batch.length, personIds.length)}: ${error}`);
       }
     }
     return personsMap;
@@ -186,7 +186,7 @@ export class PipedriveClient {
         }
       } catch (error) {
         // Continue with next batch even if one fails
-        console.error(`Error fetching deals batch ${i}-${Math.min(i + batch.length, dealIds.length)}: ${error}`);
+        console.error(`Error fetching deals batch ${i + 1}-${Math.min(i + batch.length, dealIds.length)}: ${error}`);
       }
     }
     return dealsMap;
@@ -219,7 +219,7 @@ export class PipedriveClient {
         }
       } catch (error) {
         // Continue with next batch even if one fails
-        console.error(`Error fetching organizations batch ${i}-${Math.min(i + batch.length, orgIds.length)}: ${error}`);
+        console.error(`Error fetching organizations batch ${i + 1}-${Math.min(i + batch.length, orgIds.length)}: ${error}`);
       }
     }
     return orgsMap;
