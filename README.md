@@ -127,7 +127,8 @@ npm start
 First, build the TypeScript code locally, then build the Docker image:
 
 ```bash
-# Option A: Use the helper script
+# Option A: Use the helper script (make it executable first if needed)
+chmod +x docker-build.sh
 ./docker-build.sh
 
 # Option B: Manual build
