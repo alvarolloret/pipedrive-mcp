@@ -125,6 +125,10 @@ export class SalesQueueService {
     if (typeof value === 'number') {
       return value;
     }
+    const trimmed = value.trim();
+    if (/^\d+$/.test(trimmed)) {
+      return parseInt(trimmed, 10);
+    }
     const filter = await this.client.resolveFilterByName(value, expectedType);
     return filter.id;
   }

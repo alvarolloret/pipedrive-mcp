@@ -52,7 +52,7 @@ const FILTERS_LIST_TOOL: Tool = {
         type: "string",
         description:
           'Optional filter type to narrow results.',
-        enum: ["deals", "activities", "people", "org", "products", "projects", "leads"],
+        enum: ["deals", "activity", "people", "org", "products", "projects", "leads"],
       },
     },
   },
@@ -79,9 +79,10 @@ const FILTERS_CREATE_TOOL: Tool = {
       conditions: {
         type: "object",
         description:
-          'Pipedrive filter conditions JSON. Structure: {"glue":"and","conditions":[{"glue":"and","conditions":[{condition objects}]}]}. ' +
-          'Each condition object has: object (e.g. "deal","activity"), field_id, operator (e.g. "=","!=","IS NOT NULL"), value, extra_value. ' +
-          'Max 16 conditions per filter.',
+          'Pipedrive filter conditions JSON. Full format: {"glue":"and","conditions":[{"glue":"and","conditions":[...]},{"glue":"or","conditions":[...]}]}. ' +
+          'Shorthand with only one "and" group is also accepted and auto-normalized. ' +
+          'Each condition object has: object (e.g. "deal","activity","organization"), field_id, operator (e.g. "=","!=","IS NOT NULL"), value, extra_value. ' +
+          'field_id can be numeric ID or field key/name; it is auto-resolved when possible. Max 16 conditions per filter.',
       },
     },
     required: ["name", "type", "conditions"],
@@ -314,8 +315,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       try {
         [resolvedOverdue, resolvedToday, resolvedMissing] = await Promise.all([
-          salesQueueService.resolveFilterId(overdue_activities_filter_id, "activities"),
-          salesQueueService.resolveFilterId(today_activities_filter_id, "activities"),
+          salesQueueService.resolveFilterId(overdue_activities_filter_id, "activity"),
+          salesQueueService.resolveFilterId(today_activities_filter_id, "activity"),
           salesQueueService.resolveFilterId(missing_next_action_deals_filter_id, "deals"),
         ]);
       } catch (error: any) {
